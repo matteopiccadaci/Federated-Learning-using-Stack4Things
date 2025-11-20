@@ -1,0 +1,23 @@
+{
+  "name": "autobahn-xbr-browser",
+  "version": "22.11.1",
+  "description": "[BROWSER BUILD] The XBR Protocol (smart contracts package)",
+  "main": "autobahn-xbr.js",
+
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/crossbario/autobahn-js.git"
+  },
+  "keywords": [
+    "ethereum",
+    "solidity",
+    "xbr",
+    "crossbar",
+    "autobahn",
+    "wamp",
+    "data-service",
+    "data-monetization"
+  ],
+  "author": "Crossbar.io Technologies GmbH",
+  "license": "Apache-2.0"
+}
