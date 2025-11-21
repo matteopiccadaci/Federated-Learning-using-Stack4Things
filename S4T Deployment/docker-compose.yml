@@ -572,8 +572,7 @@ services:
   lightning-rod_4:
     image: lucadagati/lrod:compose
     container_name: LR_Worker_3
-    restart: no
-    profiles: ["manual"]
+    restart: unless-stopped
     privileged: true
     networks:
       - s4t
