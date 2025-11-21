@@ -13,7 +13,10 @@ from oslo_log import log as logging
 from iotronic_lightningrod.modules.plugins import Plugin
 from autobahn.asyncio.component import Component
 from torchvision import datasets, transforms
+from torch.utils.data import TensorDataset, DataLoader
 
+train_dataset = None
+train_loader = None
 LOG = logging.getLogger(__name__)
 board_name = socket.gethostname()
 local_epochs = 5
@@ -37,27 +40,17 @@ class Net(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
-])
-
-train_dataset = datasets.MNIST(
-    "./data",
-    train=True,
-    download=True,
-    transform=transform
-)
-
-train_loader = torch.utils.data.DataLoader(
-    train_dataset,
-    batch_size=64,
-    shuffle=True
-)
-
 class Worker(Plugin.Plugin):
     def __init__(self, uuid, name, q_result=None, params=None):
         super(Worker, self).__init__(uuid, name, q_result, params)
+
+    def load_local_dataset(shard_path):
+        global train_dataset, train_loader
+
+        data_tensor, target_tensor = torch.load(shard_path, map_location="cpu")
+
+        train_dataset = TensorDataset(data_tensor, target_tensor)
+        train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
     def bytes_to_model(model, model_bytes: bytes):
         buffer = io.BytesIO(model_bytes)
@@ -71,6 +64,16 @@ class Worker(Plugin.Plugin):
         return buffer.getvalue()
 
     def run(self):
+        shard_path = self.config.extra.get(
+            "dataset_shard",
+            "/opt/mnist/mnist_shard_0.pt"  # default di emergenza
+        )
+
+        self.load_local_dataset(shard_path)
+        LOG.info(f"[{board_name}] Dataset locale caricato da {shard_path} "
+                 f"({len(train_dataset)} campioni)")
+        uri = f"iotronic.LR_Master.notify_join"
+        self.call(uri, json.dumps({"board": board_name}))
         def start_wamp():
             async def wamp_main():
                 ssl_ctx = ssl._create_unverified_context()
@@ -95,16 +98,21 @@ class Worker(Plugin.Plugin):
                 @component.on_join
                 async def onJoin(session, details):
                     LOG.info(f"[WAMP] Session joined as {board_name}")
-                    LOG.info("[WAMP] RPCs registered: train_round")
+                    LOG.info("[WAMP] RPCs registered: set_dataset, train_round")
 
-                    async def train_round(self, message):
+                    async def train_round(self, *args, **kwargs):
                         """
                         RPC chiamata dal server:
                         - riceve modello globale in bytes
                         - fa qualche epoca di training locale
                         - restituisce modello aggiornato + numero campioni
                         """
-                        b_model= json.loads(base64.b64decode(message)["model"])
+                        global train_loader, train_dataset
+
+                        if train_loader is None or train_dataset is None:
+                            LOG.error(f"[{board_name}] train_round called without a valid dataset!")
+                    
+                        b_model= json.loads(base64.b64decode(args[0])["model"])
                         device = torch.device("cpu")
 
                         model = Net().to(device)
@@ -122,11 +130,15 @@ class Worker(Plugin.Plugin):
                                 loss.backward()
                                 optimizer.step()
 
-                        updated_bytes = self.model_to_bytes(model)
+                        updated_bytes_model = Worker.model_to_bytes(model)
+                        updated_bytes_model_b64 = base64.b64encode(updated_bytes_model).decode("ascii")
                         n_samples = len(train_dataset)
-                        LOG.info(f"[{self.config.extra['worker_id']}] training ended, n_samples={n_samples}")
 
-                        return {"updated_bytes": updated_bytes, "n_samples": n_samples}
+                        LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
+
+                        return {"updated_model": updated_bytes_model_b64, "n_samples": n_samples}
+
+                                    
                 
                     await session.register(train_round, f"iotronic.{board_name}.train_round")
                 await component.start()
@@ -137,9 +149,12 @@ class Worker(Plugin.Plugin):
                     loop.run_until_complete(wamp_main())
                 except Exception as e:
                     LOG.error(f"[WAMP] Error in WAMP loop: {e}")
+                    uri = f"iotronic.LR_Master.notify_leave"
+                    self.call(uri, json.dumps({"board": board_name}))
                 finally:
                     asyncio.set_event_loop(None)
-
+                    uri = f"iotronic.LR_Master.notify_leave"
+                    self.call(uri, json.dumps({"board": board_name}))
 
         threading.Thread(target=start_wamp, name="WAMP_FLWorker", daemon=True).start()
         LOG.info("[WAMP] Worker set, waiting for RPC...")
