@@ -1,7 +1,0 @@
-{
-   "name": "autobahn-xbr",
-   "version": "19.10.1",
-   "main": "./autobahn-xbr.js",
-   "dependencies": {
-   }
-}
