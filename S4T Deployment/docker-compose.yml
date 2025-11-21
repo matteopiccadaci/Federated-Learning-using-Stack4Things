@@ -537,7 +537,7 @@ services:
       - lr_le_2:/etc/letsencrypt/
       - lr_nginx_2:/etc/nginx
       - lr_confs_2:/etc/iotronic/
-      - ./mnist/mnist_shard_0.pt:/opt/mnist/mnist_shard_0.pt
+      - ./mnist/mnist_shard_0.pt:/opt/mnist/mnist_shard.pt
     stdin_open: true
     tty: true
     entrypoint: /bin/sh
@@ -560,7 +560,7 @@ services:
       - lr_le_3:/etc/letsencrypt/
       - lr_nginx_3:/etc/nginx
       - lr_confs_3:/etc/iotronic/
-      - ./mnist/mnist_shard_1.pt:/opt/mnist/mnist_shard_1.pt
+      - ./mnist/mnist_shard_1.pt:/opt/mnist/mnist_shard.pt
     stdin_open: true
     tty: true
     entrypoint: /bin/sh
@@ -583,7 +583,7 @@ services:
       - lr_le_4:/etc/letsencrypt/
       - lr_nginx_4:/etc/nginx
       - lr_confs_4:/etc/iotronic/
-      - ./mnist/mnist_shard_2.pt:/opt/mnist/mnist_shard_2.pt
+      - ./mnist/mnist_shard_2.pt:/opt/mnist/mnist_shard.pt
     stdin_open: true
     tty: true
     entrypoint: /bin/sh
