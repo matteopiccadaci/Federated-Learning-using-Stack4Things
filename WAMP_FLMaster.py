@@ -115,38 +115,42 @@ class Worker(Plugin.Plugin):
                         num_rounds   = 3
 
                         for rnd in range(num_rounds):
-                            print(f"\n=== ROUND {rnd} ===")
+                            LOG.info(f"\n=== ROUND {rnd} ===")
 
                             # 1) serializza i pesi globali
                             global_bytes = self.model_to_bytes(global_model)
 
                             # 2) chiama in parallelo i worker
                             calls = []
-                            for wrk in workers:
-                                uri = f"iotronic.{wrk}.train_round"
-                                calls.append(self.call(uri, global_bytes))
+                            if len(workers) > 1:
+                                for wrk in workers:
+                                    uri = f"iotronic.{wrk}.train_round"
+                                    calls.append(self.call(uri, global_bytes))
 
-                            # aspetta le risposte: [(bytes1, n1), (bytes2, n2), ...]
-                            results = await asyncio.gather(*calls)
-                            print(results)
+                                # aspetta le risposte: [(bytes1, n1), (bytes2, n2), ...]
+                                results = await asyncio.gather(*calls)
+                                LOG.info(results)
 
-                            # 3) aggrega (FedAvg sui pesi)
-                            state_dicts = []
-                            ns          = []
-                            for (updated_model, n_i) in results:
-                                tmp_model = Net()
-                                self.bytes_to_model(tmp_model, updated_model)
-                                state_dicts.append(tmp_model.state_dict())
-                                ns.append(n_i)
+                                # 3) aggrega (FedAvg sui pesi)
+                                state_dicts = []
+                                ns          = []
+                                for (updated_model, n_i) in results:
+                                    tmp_model = Net()
+                                    self.bytes_to_model(tmp_model, updated_model)
+                                    state_dicts.append(tmp_model.state_dict())
+                                    ns.append(n_i)
 
-                            # FedAvg
-                            new_state_dict = self.fedavg(state_dicts, ns)
-                            global_model.load_state_dict(new_state_dict)
+                                # FedAvg
+                                new_state_dict = self.fedavg(state_dicts, ns)
+                                global_model.load_state_dict(new_state_dict)
 
-                            print(f"Round {rnd} completed, global model updated.")
+                                LOG.info(f"[WAMP] Round {rnd} completed, global model updated.")
 
-                        print("Federated training finished.")
-                        await self.leave()
+                                LOG.info("[WAMP] Federated training finished.")
+                                await self.leave()
+                            else:
+                                LOG.info("[WAMP] Not enough workers connected for federated learning.")
+                                await self.leave()
                 
                     await session.register(federated_loop, f"iotronic.{board_name}.federated_loop")
                     await session.register(notify_join, f"iotronic.{board_name}.notify_join")
