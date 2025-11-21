@@ -64,10 +64,7 @@ class Worker(Plugin.Plugin):
         return buffer.getvalue()
 
     def run(self):
-        shard_path = self.config.extra.get(
-            "dataset_shard",
-            "/opt/mnist/mnist_shard_0.pt"  # default di emergenza
-        )
+        shard_path = "/opt/mnist/mnist_shard.pt"
 
         self.load_local_dataset(shard_path)
         LOG.info(f"[{board_name}] Dataset locale caricato da {shard_path} "
