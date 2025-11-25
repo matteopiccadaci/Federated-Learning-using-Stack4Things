@@ -502,7 +502,9 @@ services:
       - ./conf_ui:/etc/openstack-dashboard
 
   lightning-rod_1:
-    image: lucadagati/lrod:compose
+    build:
+      context: .
+      dockerfile: Dockerfile.lrod
     container_name: LR_Master
     restart: unless-stopped
     privileged: true
@@ -519,12 +521,15 @@ services:
     tty: true
     entrypoint: /bin/sh
     command: >
-      -c "pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log &&
+      -c "python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
           sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
           exec startLR"
+
     
   lightning-rod_2:
-    image: lucadagati/lrod:compose
+    build:
+      context: .
+      dockerfile: Dockerfile.lrod
     container_name: LR_Worker_1
     restart: unless-stopped
     privileged: true
@@ -542,12 +547,14 @@ services:
     tty: true
     entrypoint: /bin/sh
     command: >
-      -c "pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log &&
+      -c "python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
           sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
           exec startLR"
     
   lightning-rod_3:
-    image: lucadagati/lrod:compose
+    build:
+      context: .
+      dockerfile: Dockerfile.lrod
     container_name: LR_Worker_2
     restart: unless-stopped
     privileged: true
@@ -565,12 +572,14 @@ services:
     tty: true
     entrypoint: /bin/sh
     command: >
-      -c "pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log &&
+      -c "python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
           sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
           exec startLR"
 
   lightning-rod_4:
-    image: lucadagati/lrod:compose
+    build:
+      context: .
+      dockerfile: Dockerfile.lrod
     container_name: LR_Worker_3
     restart: unless-stopped
     privileged: true
@@ -588,10 +597,9 @@ services:
     tty: true
     entrypoint: /bin/sh
     command: >
-      -c "pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log &&
+      -c "python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
           sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
           exec startLR"
-
 networks:
   s4t:
     driver: bridge
