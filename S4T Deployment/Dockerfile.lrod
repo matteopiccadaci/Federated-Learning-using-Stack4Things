@@ -1,0 +1,3 @@
+FROM lucadagati/lrod:compose
+
+RUN pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log
