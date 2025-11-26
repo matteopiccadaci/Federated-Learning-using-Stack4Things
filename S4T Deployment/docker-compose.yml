@@ -501,6 +501,22 @@ services:
       - iotronic-ui_logs:/var/log/apache2
       - ./conf_ui:/etc/openstack-dashboard
 
+  hateoas_server:
+    image: python:3.11-slim
+    container_name: hateoas_server
+    networks:
+      - s4t 
+    ports: 
+      - "4053:4053" 
+    volumes: 
+      - ./hateoas.py:/app/app.py
+    working_dir: /app
+    command: >
+      sh -c '
+      pip install fastapi uvicorn autobahn[asyncio] &&
+      python app.py'
+
+
   lightning-rod_1:
     build:
       context: .
