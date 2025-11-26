@@ -34,7 +34,7 @@ services:
 
   crossbar:
     image: crossbario/crossbar
-    container_name: crossbar_fl
+    container_name: crossbar
     restart: unless-stopped
     networks:
       - s4t
