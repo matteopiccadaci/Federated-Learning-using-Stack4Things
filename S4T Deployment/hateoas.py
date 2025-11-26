@@ -1,15 +1,15 @@
-import asyncio
+# app.py
+import threading
+from typing import Optional
+from ssl import _create_unverified_context
+
 from fastapi import FastAPI, HTTPException
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
-from ssl import _create_unverified_context
-from typing import Optional
-import threading
 import uvicorn
-import json
-
 
 app = FastAPI()
 wamp_session: Optional[ApplicationSession] = None
+
 
 class WAMPClient(ApplicationSession):
     async def onJoin(self, details):
@@ -17,269 +17,85 @@ class WAMPClient(ApplicationSession):
         wamp_session = self
         print("[WAMP] Sessione connessa")
 
-async def start_wamp():
-    ssl_context = _create_unverified_context()
-    runner = ApplicationRunner(
-        url="wss://crossbar:8181/ws",
-        realm="s4t",
-        ssl=ssl_context
-    )
-    await runner.run(WAMPClient, start_loop=False)
+    async def onDisconnect(self):
+        global wamp_session
+        wamp_session = None
+        print("[WAMP] Disconnesso")
 
-# Index
 
+def run_wamp():
+    """
+    Funzione bloccante: crea e avvia l'ApplicationRunner.
+    Deve essere eseguita in un thread separato perché runner.run() blocca.
+    """
+    try:
+        ssl_context = _create_unverified_context()  # mantiene il comportamento originale (non verificare cert)
+        runner = ApplicationRunner(
+            url="wss://crossbar:8181/ws",  # se Crossbar NON usa TLS, cambiare in "ws://crossbar:8181/ws"
+            realm="s4t",
+            ssl=ssl_context
+        )
+        print("[WAMP] Avvio runner WAMP (thread)...")
+        runner.run(WAMPClient)  # blocca fino a terminazione del runner
+        print("[WAMP] runner.run() terminato")
+    except Exception as exc:
+        # log semplice per eventuali errori nella connessione WAMP
+        print(f"[WAMP] Errore nel run_wamp: {exc}")
+
+
+# --- Startup: avviare run_wamp in un thread ---
 @app.on_event("startup")
-async def startup_event():
-    # Avvia WAMP client come task asincrono all'avvio di FastAPI
-    asyncio.create_task(start_wamp())
+def startup_event():
+    # Avvia il runner WAMP in un thread daemon in modo che non blocchi il processo principale.
+    thread = threading.Thread(target=run_wamp, daemon=True)
+    thread.start()
+    print("[APP] Thread WAMP avviato nel startup")
 
+
+# --- Routes HATEOAS ---
 @app.get("/")
 def get_boards():
     return {
-        "boards": "Board_2_SRV, Board_3_SRV, Board_4_SRV",
+        "boards": "FL_master",
         "_links": {
             "self": {"href": f"/iotronic/boards/"},
-            "Board_2_SRV": {"href": f"/iotronic/boards/Board_2_SRV"},
-            "Board_3_SRV": {"href": f"/iotronic/boards/Board_3_SRV"},
-            "Board_4_SRV": {"href": f"/iotronic/boards/Board_4_SRV"}
+            "federated_loop": {"href": f"/iotronic/boards/FL_master"}
         }
     }
 
-# Board_2_SRV
 
-@app.get("/iotronic/boards/Board_2_SRV")
-def board_2_srv_get_RPCs():
+@app.get("/iotronic/boards/FL_master")
+def FL_master_get_RPC():
     return {
-        "board": "Board_2_SRV",
+        "board": "FL_master",
         "_links": {
-            "self": { "href": f"/iotronic/boards/Board_2_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_2_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/secure_write_to_db" }
+            "self": {"href": f"/iotronic/boards/FL_master"},
+            "federated_loop": {"href": f"/iotronic/boards/FL_master/federated_loop"}
         }
     }
 
-@app.get("/iotronic/boards/Board_2_SRV/get_data")
-async def board_2_srv_get_data():
+
+@app.get("/iotronic/boards/FL_master/federated_loop")
+async def FL_master_federated_loop():
     if not wamp_session:
+        # WAMP non pronto: ritorniamo 503
         raise HTTPException(status_code=503, detail="WAMP non pronto")
 
     try:
-        result = await wamp_session.call("iotronic.Board_2_SRV.get_data")
+        # Esegui la RPC WAMP
+        result = await wamp_session.call("iotronic.FL_master.federated_loop")
         return {
-        "board": "Board_2_SRV",
-        "data": result,
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_2_SRV" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/secure_write_to_db" }
+            "board": "FL_master",
+            "data": result,
+            "_links": {
+                "self": {"href": f"/iotronic/boards/FL_master/federated_loop"}
+            }
         }
-    }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@app.get("/iotronic/boards/Board_2_SRV/clear_write_to_db")
-async def board_2_srv_clear_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_2_SRV.clear_write_to_db")
-        print (result)
-        print(type(result))
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_2_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_2_SRV/get_data" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/secure_write_to_db" }
-        }
-    }
-    except Exception as e:
+        # In caso di errore nella chiamata WAMP rispondiamo con 500
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/iotronic/boards/Board_2_SRV/secure_write_to_db")
-async def board_2_srv_secure_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_2_SRV.secure_write_to_db")
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_2_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_2_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_2_SRV/clear_write_to_db" },
-        }
-    }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Board_3_SRV
-
-@app.get("/iotronic/boards/Board_3_SRV")
-def board_3_srv_get_RPCs():
-    return {
-        "board": "Board_3_SRV",
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_3_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_3_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/secure_write_to_db" }
-        }
-    }
-
-@app.get("/iotronic/boards/Board_3_SRV/get_data")
-async def board_3_srv_get_data():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_3_SRV.get_data")
-        return  {
-        "board": "Board_3_SRV",
-        "data": result,
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_3_SRV" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/secure_write_to_db" }
-        }
-    }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/iotronic/boards/Board_3_SRV/clear_write_to_db")
-async def board_3_srv_clear_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_3_SRV.clear_write_to_db")
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_3_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_3_SRV/get_data" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/secure_write_to_db" }
-        }
-    }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/iotronic/boards/Board_3_SRV/secure_write_to_db")
-async def board_3_srv_secure_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_3_SRV.secure_write_to_db")
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_3_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_3_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_3_SRV/clear_write_to_db" }
-        }
-    }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Board_4_SRV
-
-@app.get("/iotronic/boards/Board_4_SRV")
-def board_4_srv_get_RPCs():
-    return {
-        "board": "Board_4_SRV",
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_4_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_4_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/secure_write_to_db" }
-        }
-    }
-
-@app.get("/iotronic/boards/Board_4_SRV/get_data")
-async def board_4_srv_get_data():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_4_SRV.get_data")
-        return {
-        "board": "Board_4_SRV",
-        "data": result,
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_4_SRV" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/clear_write_to_db" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/secure_write_to_db" }
-        }
-    }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@app.get("/iotronic/boards/Board_4_SRV/clear_write_to_db")
-async def board_4_srv_clear_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_4_SRV.clear_write_to_db")
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_4_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_4_SRV/get_data" },
-            "secure_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/secure_write_to_db" }
-        }
-    }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/iotronic/boards/Board_4_SRV/secure_write_to_db")
-async def board_4_srv_secure_write_to_db():
-    if not wamp_session:
-        raise HTTPException(status_code=503, detail="WAMP non pronto")
-
-    try:
-        result = await wamp_session.call("iotronic.Board_4_SRV.secure_write_to_db")
-        result = json.loads(result)
-        return {
-        "board": result['1'],
-        "data": result['0'],
-        "_links": {
-            "self": { "href": f"/iotronic/boards/Board_4_SRV" },
-            "get_data": { "href": f"/iotronic/boards/Board_4_SRV/get_data" },
-            "clear_write_to_db": { "href": f"/iotronic/boards/Board_4_SRV/clear_write_to_db" }
-        }
-    }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def run_wamp():
-    ssl_context = _create_unverified_context()
-    runner = ApplicationRunner(
-        url="wss://crossbar:8181/ws",
-        realm="s4t",
-        ssl=ssl_context
-    )
-    runner.run(WAMPClient)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_wamp, daemon=True).start()
+    # Se lanci il file direttamente, uvicorn parte e lo startup_event avvierà il thread WAMP.
     uvicorn.run(app, host="0.0.0.0", port=4053)
