@@ -14,12 +14,14 @@ from iotronic_lightningrod.modules.plugins import Plugin
 from autobahn.asyncio.component import Component
 from torchvision import datasets, transforms
 from torch.utils.data import TensorDataset, DataLoader
+from ssl import _create_unverified_context
 
 train_dataset = None
 train_loader = None
 LOG = logging.getLogger(__name__)
 board_name = socket.gethostname()
 local_epochs = 5
+master_name = "LR_Master"
 
 class Net(nn.Module):
     def __init__(self):
@@ -39,38 +41,37 @@ class Net(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
+def load_local_dataset(shard_path):
+    global train_dataset, train_loader
+
+    data_tensor, target_tensor = torch.load(shard_path, map_location="cpu")
+
+    train_dataset = TensorDataset(data_tensor, target_tensor)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+
+def bytes_to_model(model, model_bytes: bytes):
+    buffer = io.BytesIO(model_bytes)
+    state_dict = torch.load(buffer, map_location="cpu")
+    model.load_state_dict(state_dict)
+    return model
+    
+def model_to_bytes(model):
+    buffer = io.BytesIO()
+    torch.save(model.state_dict(), buffer)
+    return buffer.getvalue()
 
 class Worker(Plugin.Plugin):
     def __init__(self, uuid, name, q_result=None, params=None):
         super(Worker, self).__init__(uuid, name, q_result, params)
 
-    def load_local_dataset(shard_path):
-        global train_dataset, train_loader
-
-        data_tensor, target_tensor = torch.load(shard_path, map_location="cpu")
-
-        train_dataset = TensorDataset(data_tensor, target_tensor)
-        train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-
-    def bytes_to_model(model, model_bytes: bytes):
-        buffer = io.BytesIO(model_bytes)
-        state_dict = torch.load(buffer, map_location="cpu")
-        model.load_state_dict(state_dict)
-        return model
-    
-    def model_to_bytes(model):
-        buffer = io.BytesIO()
-        torch.save(model.state_dict(), buffer)
-        return buffer.getvalue()
-
     def run(self):
         shard_path = "/opt/mnist/mnist_shard.pt"
 
-        self.load_local_dataset(shard_path)
+        load_local_dataset(shard_path)
         LOG.info(f"[{board_name}] Dataset locale caricato da {shard_path} "
                  f"({len(train_dataset)} campioni)")
-        uri = f"iotronic.LR_Master.notify_join"
-        self.call(uri, json.dumps({"board": board_name}))
+        uri = f"iotronic.{master_name}.notify_join"
+        
         def start_wamp():
             async def wamp_main():
                 ssl_ctx = ssl._create_unverified_context()
@@ -94,10 +95,15 @@ class Worker(Plugin.Plugin):
             
                 @component.on_join
                 async def onJoin(session, details):
+                    await session.call(uri, json.dumps({"board": board_name}))
                     LOG.info(f"[WAMP] Session joined as {board_name}")
                     LOG.info("[WAMP] RPCs registered: set_dataset, train_round")
 
-                    async def train_round(self, *args, **kwargs):
+                    async def leave_session(*args, **kwargs):
+                        await session.call(f"iotronic.{master_name}.notify_leave", json.dumps({"board": board_name}))
+                        LOG.info(f"[WAMP] Session left")
+
+                    async def train_round (*args, **kwargs):
                         """
                         RPC chiamata dal server:
                         - riceve modello globale in bytes
@@ -113,7 +119,7 @@ class Worker(Plugin.Plugin):
                         device = torch.device("cpu")
 
                         model = Net().to(device)
-                        self.bytes_to_model(model, b_model)
+                        bytes_to_model(model, b_model)
 
                         optimizer = optim.SGD(model.parameters(), lr=0.01)
 
@@ -127,7 +133,7 @@ class Worker(Plugin.Plugin):
                                 loss.backward()
                                 optimizer.step()
 
-                        updated_bytes_model = Worker.model_to_bytes(model)
+                        updated_bytes_model = model_to_bytes(model)
                         updated_bytes_model_b64 = base64.b64encode(updated_bytes_model).decode("ascii")
                         n_samples = len(train_dataset)
 
@@ -136,7 +142,7 @@ class Worker(Plugin.Plugin):
                         return {"updated_model": updated_bytes_model_b64, "n_samples": n_samples}
 
                                     
-                
+                    await session.register(leave_session, f"iotronic.{board_name}.leave_session")
                     await session.register(train_round, f"iotronic.{board_name}.train_round")
                 await component.start()
             while True:
@@ -146,12 +152,8 @@ class Worker(Plugin.Plugin):
                     loop.run_until_complete(wamp_main())
                 except Exception as e:
                     LOG.error(f"[WAMP] Error in WAMP loop: {e}")
-                    uri = f"iotronic.LR_Master.notify_leave"
-                    self.call(uri, json.dumps({"board": board_name}))
                 finally:
                     asyncio.set_event_loop(None)
-                    uri = f"iotronic.LR_Master.notify_leave"
-                    self.call(uri, json.dumps({"board": board_name}))
 
         threading.Thread(target=start_wamp, name="WAMP_FLWorker", daemon=True).start()
         LOG.info("[WAMP] Worker set, waiting for RPC...")
