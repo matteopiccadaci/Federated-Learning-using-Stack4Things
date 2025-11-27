@@ -123,37 +123,43 @@ class Worker(Plugin.Plugin):
                     await session.call(uri, json.dumps({"board": board_name}))
                     LOG.info(f"[WAMP] Session joined as {board_name}")
                     LOG.info("[WAMP] RPCs registered: set_dataset, train_round")
+                    session.stop_training=False
 
                     async def leave_session(*args, **kwargs):
                         await session.call(f"iotronic.{master_name}.notify_leave", json.dumps({"board": board_name}))
                         LOG.info(f"[WAMP] Session left")
+                    
+                    async def stop_training(*args, **kwargs):
+                        session.stop_training=True
+                        LOG.info(f"[{board_name}] stop_training RPC called, stopping training after current round")
+                    
+                    async def start_training(*args, **kwargs):
+                        session.stop_training=False
+                        LOG.info(f"[{board_name}] start_training RPC called, starting training")
 
                     async def train_round (*args, **kwargs):
-                        """
-                        RPC chiamata dal server:
-                        - riceve modello globale in bytes
-                        - fa qualche epoca di training locale
-                        - restituisce modello aggiornato + numero campioni
-                        """
                         global train_loader, train_dataset
 
                         if train_loader is None or train_dataset is None:
                             LOG.error(f"[{board_name}] train_round called without a valid dataset!")
 
-                        b_model= args[0]
-                        loop = asyncio.get_running_loop()
-                        updated_bytes_model, n_samples = await loop.run_in_executor(None, training, b_model)
-                        '''
-                        The usage of an asyncronous function is necessary in order to avoid an aoumatic timeout from Crossbar.
-                        In order to avoid implementation problems, a new thread is spawned (for the same reason start_wamp is handled by a thread)
-                        '''
+                        if not session.stop_training:
+                            b_model= args[0]
+                            loop = asyncio.get_running_loop()
+                            updated_bytes_model, n_samples = await loop.run_in_executor(None, training, b_model)
+                            '''
+                            The usage of an asyncronous function is necessary in order to avoid an aoumatic timeout from Crossbar.
+                            In order to avoid implementation problems, a new thread is spawned (for the same reason start_wamp is handled by a thread)
+                            '''
 
-                        LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
+                            LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
 
-                        return {"updated_model": updated_bytes_model, "n_samples": n_samples}
+                            return {"updated_model": updated_bytes_model, "n_samples": n_samples}
 
                                     
                     await session.register(leave_session, f"iotronic.{board_name}.leave_session")
+                    await session.register(stop_training, f"iotronic.{board_name}.stop_training")
+                    await session.register(start_training, f"iotronic.{board_name}.start_training")
                     await session.register(train_round, f"iotronic.{board_name}.train_round")
                 try:
                     loop = asyncio.new_event_loop()
