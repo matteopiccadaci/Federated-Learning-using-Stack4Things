@@ -60,6 +60,32 @@ def model_to_bytes(model):
     torch.save(model.state_dict(), buffer)
     return buffer.getvalue()
 
+def training(b_model):
+    device = torch.device("cpu")
+
+    model = Net().to(device)
+    bytes_to_model(model, b_model)
+
+    optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+    LOG.info(f"[{board_name}] Training started")
+    model.train()
+    for epoch in range(local_epochs):
+        LOG.info(f"[{board_name}] Starting epoch:{epoch + 1} of {local_epochs}")
+        for batch_idx, (data, target) in enumerate(train_loader):
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(data)
+            loss = F.nll_loss(output, target)
+            loss.backward()
+            optimizer.step()
+
+    LOG.info(f"[{board_name}] Training ended")
+    updated_bytes_model = model_to_bytes(model)
+    n_samples = len(train_dataset)
+
+    return updated_bytes_model, n_samples
+
 class Worker(Plugin.Plugin):
     def __init__(self, uuid, name, q_result=None, params=None):
         super(Worker, self).__init__(uuid, name, q_result, params)
@@ -68,12 +94,11 @@ class Worker(Plugin.Plugin):
         shard_path = "/opt/mnist/mnist_shard.pt"
 
         load_local_dataset(shard_path)
-        LOG.info(f"[{board_name}] Dataset locale caricato da {shard_path} "
-                 f"({len(train_dataset)} campioni)")
+        LOG.info(f"[{board_name}] Local dataset loaded from {shard_path} "
+                 f"({len(train_dataset)} samples)")
         uri = f"iotronic.{master_name}.notify_join"
         
         def start_wamp():
-            async def wamp_main():
                 ssl_ctx = ssl._create_unverified_context()
 
                 component = Component(
@@ -116,30 +141,12 @@ class Worker(Plugin.Plugin):
                             LOG.error(f"[{board_name}] train_round called without a valid dataset!")
 
                         b_model= args[0]
-                        device = torch.device("cpu")
-
-                        model = Net().to(device)
-                        bytes_to_model(model, b_model)
-
-                        optimizer = optim.SGD(model.parameters(), lr=0.01)
-
-                        LOG.info(f"[FL_worker] Training started")
-                        model.train()
-                        for epoch in range(local_epochs):
-                            LOG.info(f"[FL_worker] Starting epoch:{epoch + 1} of {local_epochs}")
-                            for batch_idx, (data, target) in enumerate(train_loader):
-                                data, target = data.to(device), target.to(device)
-                                optimizer.zero_grad()
-                                output = model(data)
-                                loss = F.nll_loss(output, target)
-                                loss.backward()
-                                optimizer.step()
-
-                        LOG.info(f"[FL_worker] Training ended")
-
-                        updated_bytes_model = model_to_bytes(model)
-            
-                        n_samples = len(train_dataset)
+                        loop = asyncio.get_running_loop()
+                        updated_bytes_model, n_samples = await loop.run_in_executor(None, training, b_model)
+                        '''
+                        The usage of an asyncronous function is necessary in order to avoid an aoumatic timeout from Crossbar.
+                        In order to avoid implementation problems, a new thread is spawned (for the same reason start_wamp is handled by a thread)
+                        '''
 
                         LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
 
@@ -148,16 +155,13 @@ class Worker(Plugin.Plugin):
                                     
                     await session.register(leave_session, f"iotronic.{board_name}.leave_session")
                     await session.register(train_round, f"iotronic.{board_name}.train_round")
-                await component.start()
-            while True:
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    loop.run_until_complete(wamp_main())
+                    component.start(loop=loop)
+                    loop.run_forever()
                 except Exception as e:
                     LOG.error(f"[WAMP] Error in WAMP loop: {e}")
-                finally:
-                    asyncio.set_event_loop(None)
 
         threading.Thread(target=start_wamp, name="WAMP_FLWorker", daemon=True).start()
         LOG.info("[WAMP] Worker set, waiting for RPC...")
