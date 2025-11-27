@@ -524,6 +524,7 @@ services:
     container_name: LR_Master
     restart: unless-stopped
     privileged: true
+    hostname: LR_Master
     networks:
       - s4t
     ports:
