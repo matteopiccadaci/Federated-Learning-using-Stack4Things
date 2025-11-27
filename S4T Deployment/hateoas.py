@@ -3,11 +3,8 @@ from fastapi import FastAPI, HTTPException
 from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 from ssl import _create_unverified_context
 from typing import Optional
-import threading
 import uvicorn
-import json
 
-# At the invocation of the app an error regarding the threading loop will appear, but it can be ignored
 
 app = FastAPI()
 wamp_session: Optional[ApplicationSession] = None
@@ -85,16 +82,5 @@ async def FL_master_federated_loop():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def run_wamp():
-    ssl_context = _create_unverified_context()
-    runner = ApplicationRunner(
-        url="wss://crossbar:8181/ws",
-        realm="s4t",
-        ssl=ssl_context
-    )
-    runner.run(WAMPClient)
-
-
 if __name__ == "__main__":
-    threading.Thread(target=run_wamp, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=4053)
