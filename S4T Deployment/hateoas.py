@@ -42,7 +42,7 @@ def get_boards():
         "boards": "FL_master",
         "_links": {
             "self": {"href": f"/iotronic/boards/"},
-            "federated_loop": {"href": f"/iotronic/boards/FL_master"}
+            "FL_master": {"href": f"/iotronic/boards/FL_master"}
         }
     }
 
@@ -56,7 +56,11 @@ def FL_master_get_RPC():
             },
             "federated_loop": {
                 "href": f"/iotronic/boards/FL_master/federated_loop"
+            },
+            "stop_training": {
+                "href": f"/iotronic/boards/FL_master/stop_training"
             }
+
         }
     }
 
@@ -74,6 +78,26 @@ async def FL_master_federated_loop():
             "_links": {
                 "self": {
                     "href": f"/iotronic/boards/FL_master/federated_loop"
+                }
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/iotronic/boards/FL_master/stop_training")
+async def FL_master_stop_training():
+    if not wamp_session:
+        raise HTTPException(status_code=503, detail="WAMP non pronto")
+
+    try:
+        result = await wamp_session.call(f"iotronic.{master_hostname}.stop_training")
+        return {
+            "board": "FL_master",
+            "data": result,
+            "_links": {
+                "self": {
+                    "href": f"/iotronic/boards/FL_master/stop_training"
                 }
             }
         }
