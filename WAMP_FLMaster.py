@@ -18,7 +18,33 @@ import torch.utils.data as data_utils
 
 LOG = logging.getLogger(__name__)
 board_name = socket.gethostname()
+LOG.info(f"[WAMP] Board name: {board_name}")
 workers = set()
+
+def bytes_to_model(model, model_bytes: bytes):
+    buffer = io.BytesIO(model_bytes)
+    state_dict = torch.load(buffer, map_location="cpu")
+    model.load_state_dict(state_dict)
+    return model
+    
+def model_to_bytes(model):
+    buffer = io.BytesIO()
+    torch.save(model.state_dict(), buffer)
+    return buffer.getvalue()
+
+def fedavg(state_dicts, ns):
+    """Media pesata dei pesi: w = somma_i (n_i / N) * w_i"""
+    assert len(state_dicts) == len(ns)
+    N = float(sum(ns))
+
+    # inizializza con una copia del primo
+    avg_state = {k: v.clone() for k, v in state_dicts[0].items()}
+
+    for key in avg_state.keys():
+        avg_state[key].zero_()
+        for state, n_i in zip(state_dicts, ns):
+            avg_state[key] += (n_i / N) * state[key]
+        return avg_state
 
 
 class Net(nn.Module):
@@ -38,37 +64,13 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
+    
 
 
 class Worker(Plugin.Plugin):
     def __init__(self, uuid, name, q_result=None, params=None):
         super(Worker, self).__init__(uuid, name, q_result, params)
 
-    def fedavg(self, state_dicts, ns):
-        """Media pesata dei pesi: w = somma_i (n_i / N) * w_i"""
-        assert len(state_dicts) == len(ns)
-        N = float(sum(ns))
-
-        # inizializza con una copia del primo
-        avg_state = {k: v.clone() for k, v in state_dicts[0].items()}
-
-        for key in avg_state.keys():
-            avg_state[key].zero_()
-            for state, n_i in zip(state_dicts, ns):
-                avg_state[key] += (n_i / N) * state[key]
-
-            return avg_state
-
-    def bytes_to_model(model, model_bytes: bytes):
-        buffer = io.BytesIO(model_bytes)
-        state_dict = torch.load(buffer, map_location="cpu")
-        model.load_state_dict(state_dict)
-        return model
-    
-    def model_to_bytes(model):
-        buffer = io.BytesIO()
-        torch.save(model.state_dict(), buffer)
-        return buffer.getvalue()
 
     def run(self):
         def start_wamp():
@@ -95,7 +97,7 @@ class Worker(Plugin.Plugin):
                 @component.on_join
                 async def onJoin(session, details):
                     LOG.info(f"[WAMP] Session joined as {board_name}")
-                    LOG.info("[WAMP] RPCs registered: train_round")
+                    LOG.info("[WAMP] RPCs registered: federated_loop, notify_join, notify_leave")
 
                     async def notify_join(*args, **kwargs):
                         wrk=json.loads(base64.b64decode(args[0])["board"])
@@ -109,7 +111,7 @@ class Worker(Plugin.Plugin):
                         LOG.info(f"[WAMP] Removed worker: {wrk}")
                         return f"Goodbye {wrk}, you correctly left!"
 
-                    async def federated_loop(self):
+                    async def federated_loop(*args, **kwargs):
                         # inizializza modello globale
                         global_model = Net()
                         num_rounds   = 3
@@ -117,40 +119,35 @@ class Worker(Plugin.Plugin):
                         for rnd in range(num_rounds):
                             LOG.info(f"\n=== ROUND {rnd} ===")
 
-                            # 1) serializza i pesi globali
-                            global_bytes = self.model_to_bytes(global_model)
+                            global_bytes = model_to_bytes(global_model)
 
-                            # 2) chiama in parallelo i worker
                             calls = []
                             if len(workers) > 1:
                                 for wrk in workers:
                                     uri = f"iotronic.{wrk}.train_round"
                                     calls.append(self.call(uri, global_bytes))
 
-                                # aspetta le risposte: [(bytes1, n1), (bytes2, n2), ...]
                                 results = await asyncio.gather(*calls)
                                 LOG.info(results)
 
-                                # 3) aggrega (FedAvg sui pesi)
                                 state_dicts = []
                                 ns          = []
                                 for (updated_model, n_i) in results:
                                     tmp_model = Net()
-                                    self.bytes_to_model(tmp_model, updated_model)
+                                    bytes_to_model(tmp_model, updated_model)
                                     state_dicts.append(tmp_model.state_dict())
                                     ns.append(n_i)
 
-                                # FedAvg
-                                new_state_dict = self.fedavg(state_dicts, ns)
+                                new_state_dict = fedavg(state_dicts, ns)
                                 global_model.load_state_dict(new_state_dict)
 
                                 LOG.info(f"[WAMP] Round {rnd} completed, global model updated.")
 
                                 LOG.info("[WAMP] Federated training finished.")
-                                await self.leave()
+                                return {"status": "success", "detail": "Federated training finished successfully."}
                             else:
                                 LOG.info("[WAMP] Not enough workers connected for federated learning.")
-                                await self.leave()
+                                return {"status": "error", "detail": "Not enough workers connected for federated learning."}
                 
                     await session.register(federated_loop, f"iotronic.{board_name}.federated_loop")
                     await session.register(notify_join, f"iotronic.{board_name}.notify_join")
