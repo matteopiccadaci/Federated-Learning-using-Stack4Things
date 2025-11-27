@@ -74,7 +74,6 @@ class Worker(Plugin.Plugin):
 
     def run(self):
         def start_wamp():
-            async def wamp_main():
                 ssl_ctx = ssl._create_unverified_context()
 
                 component = Component(
@@ -98,6 +97,8 @@ class Worker(Plugin.Plugin):
                 async def onJoin(session, details):
                     LOG.info(f"[WAMP] Session joined as {board_name}")
                     LOG.info("[WAMP] RPCs registered: federated_loop, notify_join, notify_leave")
+                    session.stop_training=False
+                    session.running=False
 
                     async def notify_join(*args, **kwargs):
                         wrk=json.loads(args[0])["board"]
@@ -112,58 +113,68 @@ class Worker(Plugin.Plugin):
                         return f"Goodbye {wrk}, you correctly left!"
 
                     async def federated_loop(*args, **kwargs):
-                        # inizializza modello globale
+                        session.running=True
+                        session.stop_training=False
                         global_model = Net()
-                        num_rounds   = 3
+                        rnd=0
+                        LOG.info(f"[WAMP] Federated learning loop started")
 
-                        for rnd in range(num_rounds):
-                            LOG.info(f"\n=== ROUND {rnd} ===")
-
+                        while not session.stop_training:
                             global_bytes = model_to_bytes(global_model)
 
                             calls = []
-                            print(workers)
+                            LOG.info(f"[WAMP] Current workers: {workers}")
                             if len(workers) >= 1:
                                 for wrk in workers:
                                     uri = f"iotronic.{wrk}.train_round"
                                     calls.append(session.call(uri, global_bytes))
 
                                 results = await asyncio.gather(*calls)
-                                LOG.info(results)
-
                                 state_dicts = []
                                 ns          = []
-                                for (updated_model, n_i) in results:
+                                for result in results:
                                     tmp_model = Net()
-                                    bytes_to_model(tmp_model, updated_model)
+                                    bytes_to_model(tmp_model, result['updated_model'])
                                     state_dicts.append(tmp_model.state_dict())
-                                    ns.append(n_i)
+                                    ns.append(result["n_samples"])
 
-                                new_state_dict = fedavg(state_dicts, ns)
-                                global_model.load_state_dict(new_state_dict)
+                                    new_state_dict = fedavg(state_dicts, ns)
+                                    global_model.load_state_dict(new_state_dict)
 
-                                LOG.info(f"[WAMP] Round {rnd} completed, global model updated.")
+                                LOG.info(f"[WAMP] Round {rnd+1} completed, global model updated.")
+                                rnd+=1
+                                if rnd % 5 ==0: # Save every 5 rounds
+                                    save_path = "/opt/models/global_model.pth"
+                                    torch.save(global_model.state_dict(), save_path)
+                                    LOG.info(f"[WAMP] Global model saved to {save_path}")
 
-                                LOG.info("[WAMP] Federated training finished.")
-                                return {"status": "success", "detail": "Federated training finished successfully."}
                             else:
                                 LOG.info("[WAMP] Not enough workers connected for federated learning.")
+                                session.stop_training=True
+                                session.running=False
                                 return {"status": "error", "detail": "Not enough workers connected for federated learning."}
+                    
+                    async def stop_training(*args, **kwargs):
+                        session.stop_training=True
+                        while session.running:
+                            await asyncio.sleep(1)
+                        LOG.info("[WAMP] Federated learning loop stopped by master.")
+                        return {"status": "success", "detail": "Federated learning loop stopped."}
+                    
                 
                     await session.register(federated_loop, f"iotronic.{board_name}.federated_loop")
+                    await session.register(stop_training, f"iotronic.{board_name}.stop_training")
                     await session.register(notify_join, f"iotronic.{board_name}.notify_join")
                     await session.register(notify_leave, f"iotronic.{board_name}.notify_leave")
-                await component.start()
-            while True:
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    loop.run_until_complete(wamp_main())
+                    component.start(loop=loop)
+                    loop.run_forever()
                 except Exception as e:
                     LOG.error(f"[WAMP] Error in WAMP loop: {e}")
-                finally:
-                    asyncio.set_event_loop(None)
 
 
         threading.Thread(target=start_wamp, name="WAMP_FLMaster", daemon=True).start()
         LOG.info("[WAMP] Master set, waiting for RPC...")
+        self.q_result.put("WAMP_FLMaster plugin correctly started") # Used to notify the correct start of the plugin to S4T
