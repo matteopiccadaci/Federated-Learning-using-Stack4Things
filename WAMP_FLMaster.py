@@ -100,13 +100,13 @@ class Worker(Plugin.Plugin):
                     LOG.info("[WAMP] RPCs registered: federated_loop, notify_join, notify_leave")
 
                     async def notify_join(*args, **kwargs):
-                        wrk=json.loads(base64.b64decode(args[0])["board"])
+                        wrk=json.loads(args[0])["board"]
                         workers.add(wrk)
                         LOG.info(f"[WAMP] Added new worker: {wrk}")
                         return f"Hello {wrk}, you correctly joined!"
                     
                     async def notify_leave(*args, **kwargs):
-                        wrk=json.loads(base64.b64decode(args[0])["board"])
+                        wrk=json.loads(args[0])["board"]
                         workers.remove(wrk)
                         LOG.info(f"[WAMP] Removed worker: {wrk}")
                         return f"Goodbye {wrk}, you correctly left!"
@@ -122,10 +122,11 @@ class Worker(Plugin.Plugin):
                             global_bytes = model_to_bytes(global_model)
 
                             calls = []
-                            if len(workers) > 1:
+                            print(workers)
+                            if len(workers) >= 1:
                                 for wrk in workers:
                                     uri = f"iotronic.{wrk}.train_round"
-                                    calls.append(self.call(uri, global_bytes))
+                                    calls.append(session.call(uri, global_bytes))
 
                                 results = await asyncio.gather(*calls)
                                 LOG.info(results)
