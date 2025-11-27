@@ -111,6 +111,7 @@ services:
 
         echo "[INFO] Avvio di Crossbar..."
         crossbar start
+        
 
   iotronic-wstun:
     image: lucadagati/iotronic-wstun:latest
@@ -513,8 +514,13 @@ services:
     working_dir: /app
     command: >
       sh -c '
+      echo "[INFO] Waiting 10 seconds before starting...";
+      sleep 10;
+      echo "[INFO] Starting HATEOAS server...";
       pip install fastapi uvicorn autobahn[asyncio] &&
-      python app.py'
+      python app.py
+      '
+
 
 
   lightning-rod_1:
@@ -538,9 +544,10 @@ services:
     tty: true
     entrypoint: /bin/sh
     command: >
-      -c "python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
-          sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
-          exec startLR"
+      -c "mkdir -p /opt/models;
+      python -c 'import torch' 2>/dev/null || pip install --no-cache-dir torch torchvision autobahn[asyncio] oslo.log;
+      sed -i \"s|self\\.wstun_ip *= .*|self.wstun_ip = \\\"iotronic-wstun\\\"|\" /usr/local/lib/python3*/site-packages/iotronic_lightningrod/modules/service_manager.py &&
+      exec startLR"
 
     
   lightning-rod_2:
