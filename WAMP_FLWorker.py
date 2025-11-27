@@ -114,8 +114,8 @@ class Worker(Plugin.Plugin):
 
                         if train_loader is None or train_dataset is None:
                             LOG.error(f"[{board_name}] train_round called without a valid dataset!")
-                    
-                        b_model= json.loads(base64.b64decode(args[0])["model"])
+
+                        b_model= args[0]
                         device = torch.device("cpu")
 
                         model = Net().to(device)
@@ -123,8 +123,10 @@ class Worker(Plugin.Plugin):
 
                         optimizer = optim.SGD(model.parameters(), lr=0.01)
 
+                        LOG.info(f"[FL_worker] Training started")
                         model.train()
                         for epoch in range(local_epochs):
+                            LOG.info(f"[FL_worker] Starting epoch:{epoch + 1} of {local_epochs}")
                             for batch_idx, (data, target) in enumerate(train_loader):
                                 data, target = data.to(device), target.to(device)
                                 optimizer.zero_grad()
@@ -133,13 +135,15 @@ class Worker(Plugin.Plugin):
                                 loss.backward()
                                 optimizer.step()
 
+                        LOG.info(f"[FL_worker] Training ended")
+
                         updated_bytes_model = model_to_bytes(model)
-                        updated_bytes_model_b64 = base64.b64encode(updated_bytes_model).decode("ascii")
+            
                         n_samples = len(train_dataset)
 
                         LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
 
-                        return {"updated_model": updated_bytes_model_b64, "n_samples": n_samples}
+                        return {"updated_model": updated_bytes_model, "n_samples": n_samples}
 
                                     
                     await session.register(leave_session, f"iotronic.{board_name}.leave_session")
