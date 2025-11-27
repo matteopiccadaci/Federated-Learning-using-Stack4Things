@@ -11,6 +11,7 @@ import json
 
 app = FastAPI()
 wamp_session: Optional[ApplicationSession] = None
+master_hostname = "LR_Master"
 
 
 class WAMPClient(ApplicationSession):
@@ -69,7 +70,7 @@ async def FL_master_federated_loop():
         raise HTTPException(status_code=503, detail="WAMP non pronto")
 
     try:
-        result = await wamp_session.call("iotronic.22127ef48447.federated_loop")
+        result = await wamp_session.call(f"iotronic.{master_hostname}.federated_loop")
         return {
             "board": "FL_master",
             "data": result,
