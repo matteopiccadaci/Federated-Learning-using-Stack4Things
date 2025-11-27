@@ -165,3 +165,4 @@ class Worker(Plugin.Plugin):
 
         threading.Thread(target=start_wamp, name="WAMP_FLWorker", daemon=True).start()
         LOG.info("[WAMP] Worker set, waiting for RPC...")
+        self.q_result.put("WAMP_FLWorker plugin correctly started") # Used to notify the correct start of the plugin to S4T
