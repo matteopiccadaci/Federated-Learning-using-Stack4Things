@@ -9,7 +9,6 @@ import base64
 import torch.nn as nn
 import torch.nn.functional as F
 from iotronic_lightningrod.modules.plugins import Plugin
-#from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 import ssl
 from autobahn.asyncio.component import Component
 from torchvision import datasets, transforms
@@ -36,8 +35,6 @@ def fedavg(state_dicts, ns):
     """Media pesata dei pesi: w = somma_i (n_i / N) * w_i"""
     assert len(state_dicts) == len(ns)
     N = float(sum(ns))
-
-    # inizializza con una copia del primo
     avg_state = {k: v.clone() for k, v in state_dicts[0].items()}
 
     for key in avg_state.keys():
@@ -118,6 +115,10 @@ class Worker(Plugin.Plugin):
                         global_model = Net()
                         rnd=0
                         LOG.info(f"[WAMP] Federated learning loop started")
+                        if len(workers) >= 1:
+                                for wrk in workers:
+                                    uri = f"iotronic.{wrk}.start_training"
+                                    session.call(uri)
 
                         while not session.stop_training:
                             global_bytes = model_to_bytes(global_model)
@@ -156,8 +157,12 @@ class Worker(Plugin.Plugin):
                     
                     async def stop_training(*args, **kwargs):
                         session.stop_training=True
+                        session.running=False
                         while session.running:
                             await asyncio.sleep(1)
+                        for wrk in workers:
+                            LOG.info(f"[WAMP] Notifying worker {wrk} to stop training.")
+                            await session.call(f"iotronic.{wrk}.stop_training")
                         LOG.info("[WAMP] Federated learning loop stopped by master.")
                         return {"status": "success", "detail": "Federated learning loop stopped."}
                     
