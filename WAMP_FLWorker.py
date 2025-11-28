@@ -122,7 +122,7 @@ class Worker(Plugin.Plugin):
                 async def onJoin(session, details):
                     await session.call(uri, json.dumps({"board": board_name}))
                     LOG.info(f"[WAMP] Session joined as {board_name}")
-                    LOG.info("[WAMP] RPCs registered: set_dataset, train_round")
+                    LOG.info("[WAMP] RPCs registered: set_dataset, train_round, leave_session, stop_training, start_training")
                     session.stop_training=False
 
                     async def leave_session(*args, **kwargs):
@@ -138,6 +138,12 @@ class Worker(Plugin.Plugin):
                         LOG.info(f"[{board_name}] start_training RPC called, starting training")
 
                     async def train_round (*args, **kwargs):
+                        """
+                        RPC chiamata dal server:
+                        - riceve modello globale in bytes
+                        - fa qualche epoca di training locale
+                        - restituisce modello aggiornato + numero campioni
+                        """
                         global train_loader, train_dataset
 
                         if train_loader is None or train_dataset is None:
