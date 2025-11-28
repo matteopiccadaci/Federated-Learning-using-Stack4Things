@@ -5,14 +5,19 @@ import threading
 import io
 from oslo_log import log as logging
 import json
-import base64
 import torch.nn as nn
 import torch.nn.functional as F
 from iotronic_lightningrod.modules.plugins import Plugin
+#from autobahn.asyncio.wamp import ApplicationSession, ApplicationRunner
 import ssl
 from autobahn.asyncio.component import Component
 from torchvision import datasets, transforms
 import torch.utils.data as data_utils
+import base64
+import random
+from torchvision import datasets, transforms
+from PIL import Image
+from pathlib import Path
 
 
 LOG = logging.getLogger(__name__)
@@ -32,9 +37,10 @@ def model_to_bytes(model):
     return buffer.getvalue()
 
 def fedavg(state_dicts, ns):
-    """Media pesata dei pesi: w = somma_i (n_i / N) * w_i"""
     assert len(state_dicts) == len(ns)
     N = float(sum(ns))
+
+    # inizializza con una copia del primo
     avg_state = {k: v.clone() for k, v in state_dicts[0].items()}
 
     for key in avg_state.keys():
@@ -42,6 +48,26 @@ def fedavg(state_dicts, ns):
         for state, n_i in zip(state_dicts, ns):
             avg_state[key] += (n_i / N) * state[key]
         return avg_state
+
+
+def perform_inference_routine(model, image):
+    model.load_state_dict(torch.load("/opt/models/global_model.pth", map_location="cpu"))
+    model.eval()
+    img = Image.open(io.BytesIO(image)).convert("L")
+
+    transform = transforms.Compose([
+        transforms.Resize((28, 28)),
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    x = transform(img).unsqueeze(0)
+    with torch.no_grad():
+        output = model(x) 
+        pred_idx = int(output.argmax(dim=1).item())
+        probs = torch.softmax(output, dim=1).squeeze(0).tolist()
+    
+    return {"predicted_index": pred_idx, "probabilities": probs}
 
 
 class Net(nn.Module):
@@ -93,9 +119,10 @@ class Worker(Plugin.Plugin):
                 @component.on_join
                 async def onJoin(session, details):
                     LOG.info(f"[WAMP] Session joined as {board_name}")
-                    LOG.info("[WAMP] RPCs registered: federated_loop, notify_join, notify_leave")
-                    session.stop_training=False
+                    LOG.info("[WAMP] RPCs registered: federated_loop, stop_training, notify_join, notify_leave, perform_inference")
+                    session.stop_train=False
                     session.running=False
+                    session.model_ready = Path("/opt/models/global_model.pth").exists() # True if the model already exists
 
                     async def notify_join(*args, **kwargs):
                         wrk=json.loads(args[0])["board"]
@@ -111,7 +138,7 @@ class Worker(Plugin.Plugin):
 
                     async def federated_loop(*args, **kwargs):
                         session.running=True
-                        session.stop_training=False
+                        session.stop_train=False
                         global_model = Net()
                         rnd=0
                         LOG.info(f"[WAMP] Federated learning loop started")
@@ -120,7 +147,7 @@ class Worker(Plugin.Plugin):
                                     uri = f"iotronic.{wrk}.start_training"
                                     session.call(uri)
 
-                        while not session.stop_training:
+                        while not session.stop_train:
                             global_bytes = model_to_bytes(global_model)
 
                             calls = []
@@ -147,16 +174,17 @@ class Worker(Plugin.Plugin):
                                 if rnd % 5 ==0: # Save every 5 rounds
                                     save_path = "/opt/models/global_model.pth"
                                     torch.save(global_model.state_dict(), save_path)
+                                    session.model_ready=True
                                     LOG.info(f"[WAMP] Global model saved to {save_path}")
 
                             else:
                                 LOG.info("[WAMP] Not enough workers connected for federated learning.")
-                                session.stop_training=True
+                                session.stop_train=True
                                 session.running=False
                                 return {"status": "error", "detail": "Not enough workers connected for federated learning."}
                     
                     async def stop_training(*args, **kwargs):
-                        session.stop_training=True
+                        session.stop_train=True
                         session.running=False
                         while session.running:
                             await asyncio.sleep(1)
@@ -165,12 +193,24 @@ class Worker(Plugin.Plugin):
                             await session.call(f"iotronic.{wrk}.stop_training")
                         LOG.info("[WAMP] Federated learning loop stopped by master.")
                         return {"status": "success", "detail": "Federated learning loop stopped."}
-                    
+
+                    async def perform_inference(*args, **kwargs):
+                        if not session.model_ready:
+                            return {"status": "error", "detail": "Model is not ready for inference."}
+                        else: 
+                            data=args[0]
+                            image=base64.b64decode(data["image_base64"])
+                            model = Net()
+                            predictions = perform_inference_routine(model, image)
+                            LOG.info(f"[WAMP] Inference performed, predicted index: {predictions['predicted_index']}")
+                            return predictions              
                 
                     await session.register(federated_loop, f"iotronic.{board_name}.federated_loop")
                     await session.register(stop_training, f"iotronic.{board_name}.stop_training")
                     await session.register(notify_join, f"iotronic.{board_name}.notify_join")
                     await session.register(notify_leave, f"iotronic.{board_name}.notify_leave")
+                    await session.register(perform_inference, f"iotronic.{board_name}.perform_inference")
+
                 try:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
