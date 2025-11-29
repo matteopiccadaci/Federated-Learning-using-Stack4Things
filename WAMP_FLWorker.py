@@ -131,6 +131,7 @@ class Worker(Plugin.Plugin):
                     
                     async def stop_training(*args, **kwargs):
                         session.stop_training=True
+                        await session.call(uri, json.dumps({"board": board_name})) # The worker re-notifies its presence
                         LOG.info(f"[{board_name}] stop_training RPC called, stopping training after current round")
                     
                     async def start_training(*args, **kwargs):
@@ -150,17 +151,22 @@ class Worker(Plugin.Plugin):
                             LOG.error(f"[{board_name}] train_round called without a valid dataset!")
 
                         if not session.stop_training:
-                            b_model= args[0]
-                            loop = asyncio.get_running_loop()
-                            updated_bytes_model, n_samples = await loop.run_in_executor(None, training, b_model)
-                            '''
-                            The usage of an asyncronous function is necessary in order to avoid an aoumatic timeout from Crossbar.
-                            In order to avoid implementation problems, a new thread is spawned (for the same reason start_wamp is handled by a thread)
-                            '''
+                            try:
+                                b_model= args[0]
+                                loop = asyncio.get_running_loop()
+                                updated_bytes_model, n_samples = await loop.run_in_executor(None, training, b_model)
+                                '''
+                                The usage of an asyncronous function is necessary in order to avoid an aoumatic timeout from Crossbar.
+                                In order to avoid implementation problems, a new thread is spawned (for the same reason start_wamp is handled by a thread)
+                                '''
 
-                            LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
+                                LOG.info(f"[{board_name}] training ended, n_samples={n_samples}")
 
-                            return {"updated_model": updated_bytes_model, "n_samples": n_samples}
+                                return {"updated_model": updated_bytes_model, "n_samples": n_samples}
+
+                            except Exception as e:
+                                LOG.error(f"[{board_name}] Error during training: {e}")
+                                return {"status": "error", "detail": str(e)}
 
                                     
                     await session.register(leave_session, f"iotronic.{board_name}.leave_session")
