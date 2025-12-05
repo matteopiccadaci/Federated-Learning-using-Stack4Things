@@ -31,7 +31,7 @@ The imagined scenario is composed by:
 
 Here is a diagram representing the architecture of the system:
 
-<img src="images/FL_S4T.png" alt="Federated Learning using Stack4Things"/>
+<img src="images/FL_S4T.png" alt="Federated Learning using Stack4Things" width=1000 />
 
 &nbsp;
 
