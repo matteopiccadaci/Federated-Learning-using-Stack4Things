@@ -31,7 +31,7 @@ The imagined scenario is composed by:
 
 Here is a diagram representing the architecture of the system:
 
-<img src="FL_S4T.png" alt="Federated Learning using Stack4Things" width="750"/>
+<img src="images/FL_S4T.png" alt="Federated Learning using Stack4Things" width="750"/>
 
 &nbsp;
 
@@ -60,7 +60,7 @@ It is also suggested to start the **Master** board first, and then the three **W
 To access the Web UI, simply navigate to `http://localhost:4053` in any web browser.
 Here is a screenshot of the Web UI:
 
-<img src="ui.png" alt="Web User Interface" width="750"/>
+<img src="images/ui.png" alt="Web User Interface" width="750"/>
 
 From here, you can start the federated learning loop, perform inference on the model, and monitor the training process.
 
