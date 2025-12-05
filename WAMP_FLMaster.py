@@ -47,7 +47,7 @@ def fedavg(state_dicts, ns):
         avg_state[key].zero_()
         for state, n_i in zip(state_dicts, ns):
             avg_state[key] += (n_i / N) * state[key]
-        return avg_state
+    return avg_state
 
 
 def perform_inference_routine(model, image):
@@ -66,6 +66,8 @@ def perform_inference_routine(model, image):
         output = model(x) 
         pred_idx = int(output.argmax(dim=1).item())
         probs = torch.softmax(output, dim=1).squeeze(0).tolist()
+        for i in range(len(probs)):
+            probs[i] = round(probs[i],4)
     
     return {"predicted_index": pred_idx, "probabilities": probs}
 
@@ -156,32 +158,44 @@ class Worker(Plugin.Plugin):
                                 for wrk in workers:
                                     uri = f"iotronic.{wrk}.train_round"
                                     calls.append(session.call(uri, global_bytes))
+                                
+                                try:
+                                    results = await asyncio.gather(*calls)
+                                    state_dicts = []
+                                    ns          = []
+                                    for result in results:
+                                        tmp_model = Net()
+                                        bytes_to_model(tmp_model, result['updated_model'])
+                                        state_dicts.append(tmp_model.state_dict())
+                                        ns.append(result["n_samples"])
 
-                                results = await asyncio.gather(*calls)
-                                state_dicts = []
-                                ns          = []
-                                for result in results:
-                                    tmp_model = Net()
-                                    bytes_to_model(tmp_model, result['updated_model'])
-                                    state_dicts.append(tmp_model.state_dict())
-                                    ns.append(result["n_samples"])
+                                        new_state_dict = fedavg(state_dicts, ns)
+                                        global_model.load_state_dict(new_state_dict)
 
-                                    new_state_dict = fedavg(state_dicts, ns)
-                                    global_model.load_state_dict(new_state_dict)
-
-                                LOG.info(f"[WAMP] Round {rnd+1} completed, global model updated.")
-                                rnd+=1
-                                if rnd % 5 ==0: # Save every 5 rounds
-                                    save_path = "/opt/models/global_model.pth"
-                                    torch.save(global_model.state_dict(), save_path)
-                                    session.model_ready=True
-                                    LOG.info(f"[WAMP] Global model saved to {save_path}")
-
-                            else:
-                                LOG.info("[WAMP] Not enough workers connected for federated learning.")
-                                session.stop_train=True
-                                session.running=False
-                                return {"status": "error", "detail": "Not enough workers connected for federated learning."}
+                                    LOG.info(f"[WAMP] Round {rnd+1} completed, global model updated.")
+                                    rnd+=1
+                                    if rnd % 5 ==0: # Save every 5 rounds
+                                        save_path = "/opt/models/global_model.pth"
+                                        torch.save(global_model.state_dict(), save_path)
+                                        session.model_ready=True
+                                        LOG.info(f"[WAMP] Global model saved to {save_path}")
+                                    
+                                except Exception as e:
+                                    LOG.error(f"[WAMP] Error during federated learning round: {e}, notifying workers to stop training.")
+                                    for wrk in list(workers):  # To avoid modification during iteration
+                                        try:
+                                            LOG.info(f"[WAMP] Notifying worker {wrk} to stop training.")
+                                            await session.call(f"iotronic.{wrk}.stop_training")
+                                        except Exception as notify_error:
+                                            workers.discard(wrk)
+                                            session.stop_train=True
+                                            session.running=False
+                                            return {"status": "error", "detail": "Error during federated learning round, please restart the training session."}
+                                else:
+                                        LOG.info("[WAMP] Not enough workers connected for federated learning.")
+                                        session.stop_train=True
+                                        session.running=False
+                                        return {"status": "error", "detail": "Not enough workers connected for federated learning."}
                     
                     async def stop_training(*args, **kwargs):
                         session.stop_train=True
