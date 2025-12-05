@@ -174,7 +174,7 @@ class Worker(Plugin.Plugin):
                 async def onJoin(session, details):
                     await session.call(uri, {"board": board_name, "signature": signature})
                     LOG.info(f"[WAMP] Session joined as {board_name}")
-                    LOG.info("[WAMP] RPCs registered: set_dataset, train_round, leave_session, stop_training, start_training")
+                    LOG.info("[WAMP] RPCs registered: train_round, leave_session, stop_training, start_training")
                     session.stop_training=False
 
                     async def leave_session(*args, **kwargs):
