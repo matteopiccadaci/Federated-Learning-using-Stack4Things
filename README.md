@@ -315,7 +315,7 @@ It has been implemented in such a way that the inference can be performed in a p
 The result of the inference is then sent back to the caller, containing the predicted index and the probabilities for each class.
 
 
-### WAMP_FLMaster.py/WAMP_Secure_FLMaster.py
+### WAMP_FLWorker.py/WAMP_Secure_FLWorker.py
 This plugin is responsible for managing the federated learning process from the **Worker** board's perspective. It exposes the necessary RPCs to interact with the **Master** board and perform local training rounds.
 The code snippets are taken from the **unsecure** version of the plugin, as the **security features** will be later discussed.
 
