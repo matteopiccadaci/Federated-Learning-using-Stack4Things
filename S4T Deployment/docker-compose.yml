@@ -38,9 +38,6 @@ services:
         chmod 644 iotronic_CA.key iotronic_CA.pem crossbar.key crossbar.pem
         chmod 755 /etc/ssl/iotronic
 
-        # -------------------------------------------------
-        # Certificati per i nodi (Master + Workers)
-        # -------------------------------------------------
         for NODE in LR_Master LR_Worker_1 LR_Worker_2 LR_Worker_3; do
           echo "[INFO] Generazione certificati per $$NODE..."
           mkdir -p "/etc/ssl/iotronic/$$NODE"
