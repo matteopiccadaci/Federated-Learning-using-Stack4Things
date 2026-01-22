@@ -1,0 +1,237 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+
+\title[Federated Learning with S4T]{Federated Learning with Stack4Things}
+\subtitle{Hierarchical Federated Learning in IoT Environments}
+\author{Matteo Piccadaci \and Tindaro Catalfamo}
+\date{Academic Year 2025--2026}
+
+\begin{document}
+
+% Slide 1
+\begin{frame}
+  \titlepage 
+\end{frame}
+
+% Slide 2
+\begin{frame}{Motivation and Context}
+\begin{itemize}
+  \item Need to train ML models in distributed scenarios without centralizing data.
+  \item Traditional Federated Learning (FL) improves privacy but may struggle in real-world deployments.
+  \item Typical challenges in IoT/distributed systems:
+  \begin{itemize}
+    \item many heterogeneous devices,
+    \item latency and energy constraints,
+    \item scalability limits with centralized coordination.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+% Slide 3
+\begin{frame}{Federated Learning: Core Principles}
+\begin{itemize}
+  \item \textbf{Data Locality:} raw data never leaves the device.
+  \item \textbf{Collaborative Training:} multiple clients contribute to a shared global model.
+  \item \textbf{Privacy Preservation:} reduced exposure compared to centralized datasets.
+  \item \textbf{Decentralized Computation:} training load distributed across edge/mobile/IoT nodes.
+\end{itemize}
+\end{frame}
+
+% Slide 4
+\begin{frame}{Federated Learning: Standard Client--Server Workflow}
+\begin{enumerate}
+  \item A central server distributes an initial global model to clients.
+  \item Each client trains locally on private data.
+  \item Clients send only model updates (weights/gradients) back to the server.
+  \item The server aggregates updates to produce a new global model.
+  \item The updated model is redistributed and the next round begins.
+\end{enumerate}
+\end{frame}
+
+% Slide 5
+\begin{frame}{Hierarchical Federated Learning (HFL)}
+\begin{itemize}
+  \item Classic FL often follows a star topology: many clients communicate directly with one server.
+  \item This can introduce:
+  \begin{itemize}
+    \item communication bottlenecks at the central server,
+    \item increased latency,
+    \item scalability issues in large IoT deployments.
+  \end{itemize}
+  \item \textbf{HFL} introduces intermediate aggregation levels: \textbf{Edge $\rightarrow$ Fog $\rightarrow$ Cloud}.
+\end{itemize}
+\end{frame}
+
+% Slide 6
+\begin{frame}{HFL Architectural Layers}
+\begin{itemize}
+  \item \textbf{Edge Layer (Workers):}
+  \begin{itemize}
+    \item end devices (IoT sensors, smartphones, microcontrollers),
+    \item local training on private data,
+    \item communicate with nearby Fog nodes (not directly with Cloud).
+  \end{itemize}
+  \item \textbf{Fog Layer (Masters):}
+  \begin{itemize}
+    \item gateways/local servers close to the Edge,
+    \item collect edge updates and perform \textit{partial aggregation},
+    \item produce a cluster/fog model.
+  \end{itemize}
+  \item \textbf{Cloud Layer (S4T infrastructure):}
+  \begin{itemize}
+    \item orchestates redistribution of the model down the hierarchy,
+    \item provides interface to interact with the architecture and the model itself.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+% Slide 7
+\begin{frame}{Structural Advantages of HFL}
+\begin{itemize}
+  \item \textbf{Lower Network Traffic:} Fog aggregation reduces WAN uploads (one model per cluster vs. many).
+  \item \textbf{Lower Latency:} Edge nodes interact with nearby Fog nodes, enabling faster feedback loops.
+  \item \textbf{Enhanced Privacy:} Cloud sees only aggregated updates, making inference attacks harder.
+\end{itemize}
+\end{frame}
+
+% Slide 8
+\begin{frame}{Stack4Things and Crossbar (Middleware Layer)}
+\begin{itemize}
+  \item \textbf{Crossbar} acts as communication backbone in the federated/distributed architecture.
+  \item Based on \textbf{WAMP (Web Application Messaging Protocol)}:
+  \begin{itemize}
+    \item Remote Procedure Calls (RPC),
+    \item Publish/Subscribe patterns.
+  \end{itemize}
+  \item In this project, Crossbar is mainly used for \textbf{RPC exposure}:
+  \begin{itemize}
+    \item structured service interfaces,
+    \item routing, session management, authentication,
+    \item loose coupling between components.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+% Slide 9 (Architecture dedicated)
+\begin{frame}{System Architecture (Simulated HFL Setup)}
+\begin{itemize}
+  \item \textbf{Edge Layer:} three Docker containers acting as \textbf{Workers}.
+  \item \textbf{Fog Layer:} one Docker container acting as the \textbf{Master}.
+  \item \textbf{Cloud Layer:} \textbf{Stack4Things} (with Crossbar as WAMP router).
+  \item \textbf{Web UI:} user interacts with the system by issuing commands to the Master.
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Master responsibilities}
+\begin{itemize}
+  \item coordinate training rounds,
+  \item distribute the current global model to workers,
+  \item aggregate received updates into a new global model,
+  \item serve inference requests on the last saved global model.
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Worker responsibilities}
+\begin{itemize}
+  \item notify readiness,
+  \item train locally on private data shards,
+  \item return updated model parameters to the Master.
+\end{itemize}
+\end{frame}
+
+% Slide 10
+\begin{frame}{HFL Simulation: Dataset Management and Partitioning}
+\begin{itemize}
+  \item \textbf{MNIST} (60,000 training images of digits 0--9) has been used as dataset.
+  \item Simulated data distribution:
+  \begin{itemize}
+    \item global dataset is previously split into \textbf{3 IID shards},
+    \item each worker operates \textbf{only} on its local shard.
+  \end{itemize}
+  \item Preprocessing (performed before the Docker composition) includes deterministic shuffle, normalization, and serialization into local files.
+\end{itemize}
+\end{frame}
+
+% Slide 11
+\begin{frame}{Security Features (Secure Variant)}
+\begin{itemize}
+  \item Two system variants:
+  \begin{itemize}
+    \item \textbf{Unsecure:} cleartext communication,
+    \item \textbf{Secure:} confidentiality and integrity protections.
+  \end{itemize}
+  \item Secure mechanisms:
+  \begin{itemize}
+    \item \textbf{Digital Envelope:} encrypts model updates so only intended recipients can access them.
+    \item \textbf{Digital Signature:} ensures authenticity and integrity of exchanged messages.
+  \end{itemize}
+  \item Certificates/keys are managed by a dedicated CA service and distributed to containers.
+\end{itemize}
+\end{frame}
+
+% Slide 12 (Performance 1/2)
+\begin{frame}{Performance Evaluation (1/2): Time and Space Coupling}
+\begin{itemize}
+  \item \textbf{Space coupling: loose}
+  \begin{itemize}
+    \item actors run on separate devices/workspaces,
+    \item data exchange happens via middleware (Crossbar / Cloud layer).
+  \end{itemize}
+  \item \textbf{Time coupling: strong}
+  \begin{itemize}
+    \item operations are invoked through RPCs,
+    \item components wait for each other to proceed (synchronous behavior).
+  \end{itemize}
+  \item Fault management examples:
+  \begin{itemize}
+    \item Master checks worker availability and may discard unreachable workers,
+    \item Worker can stop if Master becomes unreachable,
+    \item automatic timeouts provided by the Crossbar component.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+% Slide 13 (Performance 2/2)
+\begin{frame}{Performance Evaluation (2/2): Model and Timing}
+\textbf{Model evaluation}
+\begin{itemize}
+  \item Tested on \textbf{MNIST-C (rotation corruption)}.
+  \item Accuracy improves with:
+  \begin{itemize}
+    \item more workers participating,
+    \item more local training epochs.
+  \end{itemize}
+  \item Hardware does not change accuracy, but affects training speed.
+\end{itemize}
+
+\vspace{0.6em}
+\textbf{Timing evaluation}
+\begin{itemize}
+  \item Communication latency (Master $\rightarrow$ Worker model transfer) measured over \textbf{100+ samples}.
+  \item More performant hardware showed:
+  \begin{itemize}
+    \item lower average latency,
+    \item lower variability (more stable timing).
+  \end{itemize}
+  \item In real deployments, network characteristics would likely dominate over compute power.
+\end{itemize}
+\end{frame}
+
+% Slide 14 (Conclusions separated)
+\begin{frame}{Conclusions}
+\begin{itemize}
+  \item A functional \textbf{Hierarchical Federated Learning} system was implemented on top of \textbf{Stack4Things}.
+  \item The architecture supports experimentation and extension to different datasets, models, and FL strategies.
+  \item Secure and unsecure modes enable trade-offs between simplicity and stronger guarantees.
+  \item Overall results confirm:
+  \begin{itemize}
+    \item improved model performance with more workers/epochs,
+    \item training speed strongly depends on the host machine in the simulated Docker setup.
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\end{document}
